@@ -10,6 +10,7 @@ import numpy as np
 from itertools import combinations
 from numba import njit, prange
 import tqdm
+from multiprocessing import Pool
 
 
 def check_precision(data):
@@ -35,10 +36,10 @@ def check_precision(data):
 def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
     """
     Numba-accelerated kernel for triplet summation and binning.
-    Uses parallel range (prange) to utilize all CPU cores.
+    Uses parallel range (prange) to use all CPU cores.
     """
     n = len(points)
-    # Sum of 3 points range
+    # Sum of 3 points ranges
     sum_min = min_val * 3
     sum_max = max_val * 3
     range_width = sum_max - sum_min
@@ -56,6 +57,10 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
                 sz = points[i, 2] + points[j, 2] + points[k, 2]
                 
                 # Map to bin indices
+                # maybe we could improve this if we are OK with a number
+                # of bins that is a power of 2, just by shifting the 
+                # integer, ignoring the least important bits (which is
+                # equivalent to binning)
                 ix = int(((sx - sum_min) / range_width) * bins_per_dim)
                 iy = int(((sy - sum_min) / range_width) * bins_per_dim)
                 iz = int(((sz - sum_min) / range_width) * bins_per_dim)
@@ -86,3 +91,59 @@ def compute_triplets_numba(data, bins_per_dim=100):
         master_hist += exp_hist
         
     return master_hist
+
+
+
+### this is a variant that doesn't use numba and is much slower. The issue
+### is that it does compute in advance all the indexes, while instead they 
+### should be reused. 
+
+def fill_histogram(exp_data, bins_per_dim, min_val, max_val, power):
+    """
+    Returns a 1D flattened bincount array.
+    """
+
+    points = np.array(exp_data, dtype=np.float64)*10**power
+    points = np.rint(points).T
+    
+    n = len(points)
+    
+    sum_min, sum_max = min_val * 3, max_val * 3
+    
+    # Vectorized Triplet Sums, these are all indices of the triplets
+    idx = np.array(list(combinations(range(n), 3)), dtype=np.int32)
+    triplet_sums = points[idx[:, 0]] + points[idx[:, 1]] + points[idx[:, 2]]
+    
+    # Normalize sums to [0, 1] then scale to [0, bins_per_dim - 1]
+    indices = ((triplet_sums - sum_min) / (sum_max - sum_min) * bins_per_dim).astype(np.int32)
+    
+    # Clip to ensure no index out of bounds due to float precision
+    np.clip(indices, 0, bins_per_dim - 1, out=indices)
+    
+    # Flattened Indexing to use bincount, faster than histograms
+    # flat_idx = ix * B^2 + iy * B + iz
+    flat_idx = (indices[:, 0] * (bins_per_dim**2) + 
+                indices[:, 1] * bins_per_dim + 
+                indices[:, 2])
+    
+    return np.bincount(flat_idx, minlength=bins_per_dim**3).astype(np.uint64)
+
+
+def compute_triplets(data, bins_per_dim=100):
+    """ this variant is memory intentive and slower than the numba one """
+    print('pre-parsing data...')
+    power, max_mod = check_precision(data)
+    
+    total_bins = bins_per_dim**3
+    master_hist = np.zeros(total_bins, dtype=np.uint64)
+    
+    print('computing all triplets...')
+    
+    with Pool(1) as pool:
+        args = [(exp, bins_per_dim, -max_mod, max_mod, power) for exp in data]
+        
+        for result in pool.starmap(fill_histogram, tqdm.tqdm(args, 
+                                                             total=len(args))):
+            master_hist += result
+            
+    return master_hist.reshape((bins_per_dim, bins_per_dim, bins_per_dim))

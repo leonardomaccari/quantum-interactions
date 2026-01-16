@@ -83,7 +83,8 @@ def parse_args():
     parser.add_argument('-n', help='tuple size', default=1, type=int)
     parser.add_argument('-r', help='runs', default=0, type=int)
     parser.add_argument('--command', help='what to do', choices=['summary',
-                                                        'all_triplets'])
+                                                        'all_triplets',
+                                                        'all_triplets_numba'])
     parser.add_argument('-d', help='dump results in a pickle file', default='')
     
     return parser.parse_args()
@@ -99,10 +100,12 @@ def main():
     if args.command == 'summary':
         data_summary(data)
     elif args.command == 'all_triplets':
+        hist = compute_triplets.compute_triplets(data)
+    elif args.command == 'all_triplets_numba':
         hist = compute_triplets.compute_triplets_numba(data)
-        if args.d:
-            with open(args.d, 'bw') as f:
-                pickle.dump(hist, f)
+    if args.d:
+        with open(args.d, 'bw') as f:
+            pickle.dump(hist, f)
     else:
         print('unknown command')
     
