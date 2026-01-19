@@ -79,9 +79,9 @@ def data_summary(data):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-f', help='data file', default='')
-    parser.add_argument('-n', help='tuple size', default=1, type=int)
-    parser.add_argument('-r', help='runs', default=0, type=int)
+    parser.add_argument('-f', help='data file', required=True)
+    parser.add_argument('-r', help='limit the number of experiments', 
+                        default=0, type=int)
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
                                                         'all_triplets_numba'])

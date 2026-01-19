@@ -48,7 +48,7 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
     hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
     
     # We iterate manually to avoid itertools overhead in Numba
-    for i in prange(n):
+    for i in prange(n): # this runs parallel processes
         for j in range(i + 1, n):
             for k in range(j + 1, n):
                 # Calculate sums
@@ -91,7 +91,6 @@ def compute_triplets_numba(data, bins_per_dim=100):
         master_hist += exp_hist
         
     return master_hist
-
 
 
 ### this is a variant that doesn't use numba and is much slower. The issue
