@@ -77,6 +77,44 @@ def data_summary(data):
     ax2.hist(c_mod, bins=100, histtype='step')
     plt.show()
 
+def plot_3d_triplet_hist(hist_bundle):
+    hist = hist_bundle['data']
+    min_val = -hist_bundle['max_mod']
+    max_val = hist_bundle['max_mod']
+    bins_per_dim = hist_bundle['bins_per_dim']
+    sum_min = min_val * 3
+    sum_max = max_val * 3
+    
+    # the center of each bin, we could limit to non-zero bins
+    bin_centers = np.linspace(sum_min, sum_max, bins_per_dim)
+    
+    # Create 3D grids of coordinates
+    X, Y, Z = np.meshgrid(bin_centers, bin_centers, bin_centers, 
+                          indexing='ij') # meshgrid has two indexing modes
+    
+    # Mask the data: we only want to plot bins where hist > 0
+    mask = hist > 0
+    x_coords = X[mask]
+    y_coords = Y[mask]
+    z_coords = Z[mask]
+    counts = hist[mask]
+    
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Use color and size to represent the intensity of the bin
+    scatter = ax.scatter(x_coords, y_coords, z_coords, 
+                         c=counts, 
+                         cmap='viridis', 
+                         s=np.log1p(counts) * 10,
+                         alpha=0.6)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title('3D Distribution of Triplet Sums')
+    fig.colorbar(scatter, label='Counts')
+    plt.show()
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', help='data file', required=True)
@@ -86,7 +124,11 @@ def parse_args():
                                                         'all_triplets',
                                                         'all_triplets_numba'])
     parser.add_argument('-d', help='dump results in a pickle file', default='')
-    
+    parser.add_argument('-b', help='number of bins per dimension', 
+                        type=int, default=100)
+
+    parser.add_argument('-s', help='show the 3D histogram', 
+                        default=False, action='store_true')
     return parser.parse_args()
     
 def main():
@@ -100,14 +142,19 @@ def main():
     if args.command == 'summary':
         data_summary(data)
     elif args.command == 'all_triplets':
-        hist = compute_triplets.compute_triplets(data)
+        hist = compute_triplets.compute_triplets(data, bins_per_dim=args.b)
     elif args.command == 'all_triplets_numba':
-        hist = compute_triplets.compute_triplets_numba(data)
+        hist = compute_triplets.compute_triplets_numba(data, 
+                                                       bins_per_dim=args.b)
+    else:
+        print('unknown command')
+    
     if args.d:
         with open(args.d, 'bw') as f:
             pickle.dump(hist, f)
-    else:
-        print('unknown command')
+    if args.s:
+        plot_3d_triplet_hist(hist)
+    
     
 
 if __name__ == '__main__':

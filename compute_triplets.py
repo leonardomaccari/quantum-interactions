@@ -11,7 +11,7 @@ from itertools import combinations
 from numba import njit, prange
 import tqdm
 from multiprocessing import Pool
-
+import math
 
 def check_precision(data):
     """ Analyse the points and extract bounds for the precision of the 
@@ -43,10 +43,14 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
     sum_min = min_val * 3
     sum_max = max_val * 3
     range_width = sum_max - sum_min
-    
+    bin_width = int(range_width/bins_per_dim)
     # Initialize local histogram for this experiment
     hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
-    
+    shift = 0
+    if int(math.log2(bins_per_dim)) == math.log2(bins_per_dim):
+        prec = math.ceil(math.log2(range_width))
+        shift = prec - int(math.log2(bins_per_dim))
+        
     # We iterate manually to avoid itertools overhead in Numba
     for i in prange(n): # this runs parallel processes
         for j in range(i + 1, n):
@@ -56,14 +60,28 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
                 sy = points[i, 1] + points[j, 1] + points[k, 1]
                 sz = points[i, 2] + points[j, 2] + points[k, 2]
                 
-                # Map to bin indices
-                # maybe we could improve this if we are OK with a number
-                # of bins that is a power of 2, just by shifting the 
-                # integer, ignoring the least important bits (which is
-                # equivalent to binning)
-                ix = int(((sx - sum_min) / range_width) * bins_per_dim)
-                iy = int(((sy - sum_min) / range_width) * bins_per_dim)
-                iz = int(((sz - sum_min) / range_width) * bins_per_dim)
+                # Here we exploit the fact that binning is like right shifting
+                # ex: 1110101 if we bin with 4 bins goes to 11, as only the 
+                # most siginificant bits are preserved.
+                # note however that the bins are differently ranged:
+                # assuming that range_width has at most N bits, then the 
+                # largest bin starts from 2**(N+1), while using the 
+                # division method it starts exactly at range_width
+                
+                if shift:
+                    ix = (sx - sum_min) >> shift
+                    iy = (sy - sum_min) >> shift
+                    iz = (sz - sum_min) >> shift
+                else:
+                    ix = int(((sx - sum_min) / range_width) * bins_per_dim)
+                    iy = int(((sy - sum_min) / range_width) * bins_per_dim)
+                    iz = int(((sz - sum_min) / range_width) * bins_per_dim)
+                    
+                    # this seems to be slower
+                    #ix = (sx - sum_min) // bin_width
+                    #iy = (sy - sum_min) // bin_width
+                    #iz = (sz - sum_min) // bin_width
+                #print(ix, sx, sum_min, shift)
                 
                 # Boundary check (handle edge case where sum == sum_max)
                 if ix >= bins_per_dim: ix = bins_per_dim - 1
@@ -80,17 +98,20 @@ def compute_triplets_numba(data, bins_per_dim=100):
     power, max_mod = check_precision(data)
     master_hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), 
                            dtype=np.uint64)
+    max_mod = int(max_mod*10**power)
     print('computing all triplets...')
     for i, exp in tqdm.tqdm(enumerate(data), total=len(data)):
         # Convert to (N, 3) int64 array 
         points = np.array(exp, dtype=np.float64)*10**power
-        points = np.rint(points).T
-        
+        points = points.astype(np.int64).T
         # Call the JIT-compiled kernel
-        exp_hist = fill_histogram_numba(points, bins_per_dim, -max_mod, max_mod)
+
+        exp_hist = fill_histogram_numba(points, bins_per_dim, -max_mod, 
+                                        max_mod)
         master_hist += exp_hist
-        
-    return master_hist
+    rvalue = {'data':master_hist, 'max_mod':max_mod, 
+              'bins_per_dim':bins_per_dim}
+    return rvalue
 
 
 ### this is a variant that doesn't use numba and is much slower. The issue
@@ -139,7 +160,7 @@ def compute_triplets(data, bins_per_dim=100):
     print('computing all triplets...')
     
     with Pool(1) as pool:
-        args = [(exp, bins_per_dim, -max_mod, max_mod, power) for exp in data]
+        args = [(exp, bins_per_dim, int(-max_mod), int(max_mod), power) for exp in data]
         
         for result in pool.starmap(fill_histogram, tqdm.tqdm(args, 
                                                              total=len(args))):
