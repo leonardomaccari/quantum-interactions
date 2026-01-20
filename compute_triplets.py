@@ -50,7 +50,7 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
     if int(math.log2(bins_per_dim)) == math.log2(bins_per_dim):
         prec = math.ceil(math.log2(range_width))
         shift = prec - int(math.log2(bins_per_dim))
-        
+    points = points - min_val
     # We iterate manually to avoid itertools overhead in Numba
     for i in prange(n): # this runs parallel processes
         for j in range(i + 1, n):
@@ -69,19 +69,18 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
                 # division method it starts exactly at range_width
                 
                 if shift:
-                    ix = (sx - sum_min) >> shift
-                    iy = (sy - sum_min) >> shift
-                    iz = (sz - sum_min) >> shift
+                    ix = sx >> shift
+                    iy = sy >> shift
+                    iz = sz >> shift
                 else:
-                    ix = int(((sx - sum_min) / range_width) * bins_per_dim)
-                    iy = int(((sy - sum_min) / range_width) * bins_per_dim)
-                    iz = int(((sz - sum_min) / range_width) * bins_per_dim)
+                    ix = int((sx  / range_width) * bins_per_dim)
+                    iy = int((sy  / range_width) * bins_per_dim)
+                    iz = int((sz  / range_width) * bins_per_dim)
                     
                     # this seems to be slower
                     #ix = (sx - sum_min) // bin_width
                     #iy = (sy - sum_min) // bin_width
                     #iz = (sz - sum_min) // bin_width
-                #print(ix, sx, sum_min, shift)
                 
                 # Boundary check (handle edge case where sum == sum_max)
                 if ix >= bins_per_dim: ix = bins_per_dim - 1
