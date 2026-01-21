@@ -8,7 +8,7 @@ Created on Fri Jan 16 11:28:37 2026
 
 import numpy as np
 from itertools import combinations
-from numba import njit, prange
+from numba import njit, prange, set_num_threads
 import tqdm
 from multiprocessing import Pool
 import math
@@ -33,81 +33,104 @@ def check_precision(data):
 
 
 @njit(parallel=True)
-def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
+def fill_histogram_numba(data, bins_per_dim, min_val, max_val, power):
     """
     Numba-accelerated kernel for triplet summation and binning.
     Uses parallel range (prange) to use all CPU cores.
     """
-    n = len(points)
     # Sum of 3 points ranges
     sum_min = min_val * 3
     sum_max = max_val * 3
     range_width = sum_max - sum_min
     bin_width = int(range_width/bins_per_dim)
-    # Initialize local histogram for this experiment
-    hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
+    # Initialize the global histogram
+    master_hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
     shift = 0
     if int(math.log2(bins_per_dim)) == math.log2(bins_per_dim):
         prec = math.ceil(math.log2(range_width))
         shift = prec - int(math.log2(bins_per_dim))
-    points = points - min_val
-    # We iterate manually to avoid itertools overhead in Numba
-    for i in prange(n): # this runs parallel processes
-        for j in range(i + 1, n):
-            for k in range(j + 1, n):
-                # Calculate sums
-                sx = points[i, 0] + points[j, 0] + points[k, 0]
-                sy = points[i, 1] + points[j, 1] + points[k, 1]
-                sz = points[i, 2] + points[j, 2] + points[k, 2]
-                
-                # Here we exploit the fact that binning is like right shifting
-                # ex: 1110101 if we bin with 4 bins goes to 11, as only the 
-                # most siginificant bits are preserved.
-                # note however that the bins are differently ranged:
-                # assuming that range_width has at most N bits, then the 
-                # largest bin starts from 2**(N+1), while using the 
-                # division method it starts exactly at range_width
-                
-                if shift:
-                    ix = sx >> shift
-                    iy = sy >> shift
-                    iz = sz >> shift
-                else:
-                    ix = int((sx  / range_width) * bins_per_dim)
-                    iy = int((sy  / range_width) * bins_per_dim)
-                    iz = int((sz  / range_width) * bins_per_dim)
-                    
-                    # this seems to be slower
-                    #ix = (sx - sum_min) // bin_width
-                    #iy = (sy - sum_min) // bin_width
-                    #iz = (sz - sum_min) // bin_width
-                
-                # Boundary check (handle edge case where sum == sum_max)
-                if ix >= bins_per_dim: ix = bins_per_dim - 1
-                if iy >= bins_per_dim: iy = bins_per_dim - 1
-                if iz >= bins_per_dim: iz = bins_per_dim - 1
-                
-                if ix >= 0 and iy >= 0 and iz >= 0:
-                    # Numba handles thread-safe increments in parallel loops
-                    hist[ix, iy, iz] += 1
-    return hist
+    for r in prange(len(data)):
+        points = data[r]
+        n = len(points)
+        hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), 
+                        dtype=np.uint64)
 
-def compute_triplets_numba(data, bins_per_dim=100):
+        for i in range(n): # this runs parallel processes
+            for j in range(i + 1, n):
+                for k in range(j + 1, n):
+                    # Calculate sums
+                    sx = points[i, 0] + points[j, 0] + points[k, 0]
+                    sy = points[i, 1] + points[j, 1] + points[k, 1]
+                    sz = points[i, 2] + points[j, 2] + points[k, 2]
+                    
+                    # Here we exploit the fact that binning is like right shifting
+                    # ex: 1110101 if we bin with 4 bins goes to 11, as only the 
+                    # most siginificant bits are preserved.
+                    # note however that the bins are differently ranged:
+                    # assuming that range_width has at most N bits, then the 
+                    # largest bin starts from 2**(N+1), while using the 
+                    # division method it starts exactly at range_width
+                    
+                    if shift:
+                        ix = sx >> shift
+                        iy = sy >> shift
+                        iz = sz >> shift
+                    else:
+                        ix = int((sx  / range_width) * bins_per_dim)
+                        iy = int((sy  / range_width) * bins_per_dim)
+                        iz = int((sz  / range_width) * bins_per_dim)
+                        
+                        # this seems to be slower
+                        #ix = (sx - sum_min) // bin_width
+                        #iy = (sy - sum_min) // bin_width
+                        #iz = (sz - sum_min) // bin_width
+                    
+                    # Boundary check (handle edge case where sum == sum_max)
+                    if ix >= bins_per_dim: ix = bins_per_dim - 1
+                    if iy >= bins_per_dim: iy = bins_per_dim - 1
+                    if iz >= bins_per_dim: iz = bins_per_dim - 1
+                    
+                    if ix >= 0 and iy >= 0 and iz >= 0:
+                        # Numba handles thread-safe increments in parallel loops
+                        hist[ix, iy, iz] += 1
+        master_hist += hist        
+        # this does not really work well but it prints something :-)
+        if r in [10, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000]:
+            print(f'Process {r} over {len(data)} completed')
+    return master_hist
+
+def list_to_3d_array(data, power, min_val):
+    # Find max points in any experiment to set the array size
+    num_exps = len(data)
+    max_pts = max(len(exp[0]) for exp in data) 
+    print(f'OK,max point in experiment is {max_pts}')
+    # Create empty array (Exps, Points, Coords)
+    # Using NaN as padding so we can easily skip empty points in the loop
+    data_3d = np.full((num_exps, max_pts, 3), np.nan, dtype=np.int64)
+    
+    for i, exp in tqdm.tqdm(enumerate(data)):
+        # exp is [[x...], [y...], [z...]] -> we want (N, 3)
+        points = np.array(exp).T
+        points = np.array(points, dtype=np.float64)*10**power - min_val
+        points = points.astype(np.int64) 
+        n_pts = points.shape[0]
+        data_3d[i, :n_pts, :] = points
+    return data_3d
+
+def compute_triplets_numba(data, bins_per_dim=100, threads=0):
     print('pre-parsing data...')
     power, max_mod = check_precision(data)
     master_hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), 
                            dtype=np.uint64)
     max_mod = int(max_mod*10**power)
+    data_3d = list_to_3d_array(data, power, int(-max_mod))
+    if threads: # reduce numba threads
+        set_num_threads(threads)
     print('computing all triplets...')
-    for i, exp in tqdm.tqdm(enumerate(data), total=len(data)):
-        # Convert to (N, 3) int64 array 
-        points = np.array(exp, dtype=np.float64)*10**power
-        points = points.astype(np.int64).T
-        # Call the JIT-compiled kernel
+    
 
-        exp_hist = fill_histogram_numba(points, bins_per_dim, -max_mod, 
-                                        max_mod)
-        master_hist += exp_hist
+    master_hist = fill_histogram_numba(data_3d, bins_per_dim, -max_mod, 
+                                        max_mod, power)
     rvalue = {'data':master_hist, 'max_mod':max_mod, 
               'bins_per_dim':bins_per_dim}
     return rvalue
@@ -152,7 +175,7 @@ def compute_triplets(data, bins_per_dim=100):
     """ this variant is memory intentive and slower than the numba one """
     print('pre-parsing data...')
     power, max_mod = check_precision(data)
-    
+
     total_bins = bins_per_dim**3
     master_hist = np.zeros(total_bins, dtype=np.uint64)
     

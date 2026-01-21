@@ -14,6 +14,7 @@ from collections import defaultdict
 from itertools import combinations
 from multiprocessing import Pool
 import compute_triplets 
+import numba
 
 
 class TestFunctions(unittest.TestCase):
@@ -120,6 +121,9 @@ def parse_args():
     parser.add_argument('-f', help='data file', required=True)
     parser.add_argument('-r', help='limit the number of experiments', 
                         default=0, type=int)
+    parser.add_argument('-p', help='limit the number of parallel numba threads', 
+                        default=0, type=int)
+    
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
                                                         'all_triplets_numba'])
@@ -145,7 +149,8 @@ def main():
         hist = compute_triplets.compute_triplets(data, bins_per_dim=args.b)
     elif args.command == 'all_triplets_numba':
         hist = compute_triplets.compute_triplets_numba(data, 
-                                                       bins_per_dim=args.b)
+                                                       args.b,
+                                                       args.p)
     else:
         print('unknown command')
     
@@ -154,8 +159,7 @@ def main():
             pickle.dump(hist, f)
     if args.s:
         plot_3d_triplet_hist(hist)
-    
-    
+
 
 if __name__ == '__main__':
     main()
