@@ -14,6 +14,7 @@ from collections import defaultdict
 from itertools import combinations
 from multiprocessing import Pool
 import compute_triplets 
+from AI import amie
 
 
 class TestFunctions(unittest.TestCase):
@@ -120,9 +121,12 @@ def parse_args():
     parser.add_argument('-f', help='data file', required=True)
     parser.add_argument('-r', help='limit the number of experiments', 
                         default=0, type=int)
+    parser.add_argument('-k', help='number of quantized levels for k-means clusters', 
+                        default=100, type=int)
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
-                                                        'all_triplets_numba'])
+                                                        'all_triplets_numba',
+                                                        'AMIE'])
     parser.add_argument('-d', help='dump results in a pickle file', default='')
     parser.add_argument('-b', help='number of bins per dimension', 
                         type=int, default=100)
@@ -146,6 +150,9 @@ def main():
     elif args.command == 'all_triplets_numba':
         hist = compute_triplets.compute_triplets_numba(data, 
                                                        bins_per_dim=args.b)
+    elif args.command == 'AMIE':
+        state_matrix = amie.quantize_dataset_globally(data, k_clusters=args.k,
+                                                 bins_per_dim=args.b)
     else:
         print('unknown command')
     
