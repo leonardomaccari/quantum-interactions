@@ -123,6 +123,8 @@ def parse_args():
                         default=0, type=int)
     parser.add_argument('-k', help='number of quantized levels for k-means clusters', 
                         default=100, type=int)
+    parser.add_argument('-e', help='epsilon for zero thresholding', 
+                        default=0.1, type=float)
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
                                                         'all_triplets_numba',
@@ -151,8 +153,10 @@ def main():
         hist = compute_triplets.compute_triplets_numba(data, 
                                                        bins_per_dim=args.b)
     elif args.command == 'AMIE':
-        state_matrix = amie.quantize_dataset_globally(data, k_clusters=args.k,
-                                                 bins_per_dim=args.b)
+        state_matrix = amie.run_physics_discovery_pipeline(data, 
+                                                           bins_per_dim=args.b, 
+                                                           k_clusters=args.k,
+                                                 epsilon=args.e)
     else:
         print('unknown command')
     
