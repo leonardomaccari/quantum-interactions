@@ -125,7 +125,8 @@ def parse_args():
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
                                                         'all_triplets_baseline',
-                                                        'compare_all_triplets'])
+                                                        'compare_all_triplets',
+                                                        'optimize'])
     parser.add_argument('-d', help='dump results in a pickle file', default='')
     parser.add_argument('-b', help='number of bins per dimension', 
                         type=int, default=100)
@@ -160,6 +161,8 @@ def main():
     elif args.command == 'compare_all_triplets':
         hist,_,_ = optimizer.compare_experiments(data, args.b)
         h_flag = True
+    elif args.command == 'optimize':
+        optimizer.optimize(data, n_trials=5)
     else:
         print('unknown command')
     
