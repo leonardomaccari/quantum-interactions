@@ -101,15 +101,17 @@ def fill_histogram_numba_cross(
 
     return sub_hists.sum(axis=0)
     
-def compute_triplets_numba_cross(data, bins_per_dim=64, norm_factor_cross=0.001):
-    print('pre-parsing data...')
-    power, max_mod = check_precision(data)
+def compute_triplets_numba_cross(data, bins_per_dim=64, power=0, 
+                                 max_mod=0, norm_factor_cross=0.001):
+    if not power:
+        print('pre-parsing data...')
+        power, max_mod = check_precision(data)
     # master_hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), 
     #                        dtype=np.uint64)
     master_hist = np.zeros((len(data), bins_per_dim, bins_per_dim, bins_per_dim), 
                            dtype=np.uint64)
-    max_mod = int(max_mod*10**power)
-    print('computing all triplets...')
+    max_mod_scaled = int(max_mod*10**power)
+    print('computing all triplets (cross)...')
 
     # flatten data and keep shot indices in separate array
     flat_points = []
@@ -127,12 +129,13 @@ def compute_triplets_numba_cross(data, bins_per_dim=64, norm_factor_cross=0.001)
         # Call the JIT-compiled kernel
         
         exp_hist = fill_histogram_numba_cross(i, flat_points, offsets,
-                                              bins_per_dim, -max_mod, max_mod,
+                                              bins_per_dim, -max_mod_scaled, 
+                                              max_mod_scaled,
                                               norm_factor_cross)
         # master_hist += exp_hist
         master_hist[i] = exp_hist
     rvalue = {'data':master_hist, 'max_mod':max_mod, 
-              'bins_per_dim':bins_per_dim}
+              'bins_per_dim':bins_per_dim,  'power':power}
     return rvalue
 
 
@@ -236,15 +239,17 @@ def fill_histogram_numba_norm(
     return sub_hists.sum(axis=0)
 
 
-def compute_triplets_numba_norm(data, bins_per_dim=64, norm_factor_norm=0.001):
-    print('pre-parsing data...')
-    power, max_mod = check_precision(data)
+def compute_triplets_numba_norm(data, bins_per_dim=64, power=0, 
+                                max_mod=0, norm_factor_norm=0.001):
+    if not power:
+        print('pre-parsing data...')
+        power, max_mod = check_precision(data)
     # master_hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), 
     #                        dtype=np.uint64)
     master_hist = np.zeros((len(data), bins_per_dim, bins_per_dim, bins_per_dim), 
                            dtype=np.uint64)
-    max_mod = int(max_mod*10**power)
-    print('computing all triplets...')
+    max_mod_scaled = int(max_mod*10**power)
+    print('computing all triplets (norm)...')
 
     # flatten data and keep shot indices in separate array
     flat_points = []
@@ -265,11 +270,12 @@ def compute_triplets_numba_norm(data, bins_per_dim=64, norm_factor_norm=0.001):
         # Call the JIT-compiled kernel
         
         exp_hist = fill_histogram_numba_norm(i, flat_points, offsets, shot_index,
-                                             bins_per_dim, -max_mod, max_mod,
+                                             bins_per_dim, -max_mod_scaled, 
+                                             max_mod_scaled,
                                              norm_factor_norm)
         # master_hist += exp_hist
         master_hist[i] = exp_hist
 
     rvalue = {'data':master_hist, 'max_mod':max_mod, 
-              'bins_per_dim':bins_per_dim}
+              'bins_per_dim':bins_per_dim,  'power':power}
     return rvalue

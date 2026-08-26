@@ -15,6 +15,7 @@ from itertools import combinations
 from multiprocessing import Pool
 import compute_triplets 
 import compute_baseline
+import optimizer
 
 
 class TestFunctions(unittest.TestCase):
@@ -123,7 +124,8 @@ def parse_args():
                         default=0, type=int)
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
-                                                        'all_triplets_baseline'])
+                                                        'all_triplets_baseline',
+                                                        'compare_all_triplets'])
     parser.add_argument('-d', help='dump results in a pickle file', default='')
     parser.add_argument('-b', help='number of bins per dimension', 
                         type=int, default=100)
@@ -152,11 +154,12 @@ def main():
                                                        bins_per_dim=args.b)
         rvalue_cross = compute_baseline.compute_triplets_numba_cross(data, 
                                                        bins_per_dim=args.b)
-        #breakpoint()
         hist = rvalue_norm['data'].sum(axis=0)
         hist += rvalue_cross['data'].sum(axis=0)
         h_flag = True
-
+    elif args.command == 'compare_all_triplets':
+        hist,_,_ = optimizer.compare_experiments(data, args.b)
+        h_flag = True
     else:
         print('unknown command')
     
@@ -166,7 +169,8 @@ def main():
     if args.s:
         plot_3d_triplet_hist(hist)
     if h_flag:
-        print(f'Triplets in the zero bin: {hist[0,0,0]}')
+        center = args.b // 2
+        print(f'Triplets in the zero bin: {hist[center,center,center]}')
 
     
 

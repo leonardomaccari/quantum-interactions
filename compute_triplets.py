@@ -94,12 +94,13 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
                     sub_hists[tid, ix, iy, iz] += 1     
     return sub_hists.sum(axis=0)
 
-def compute_triplets_numba(data, bins_per_dim=100):
+def compute_triplets_numba(data, bins_per_dim=100, power=0, max_mod=0):
     print('pre-parsing data...')
-    power, max_mod = check_precision(data)
+    if not power:
+        power, max_mod = check_precision(data)
     master_hist = np.zeros((len(data), bins_per_dim, bins_per_dim, bins_per_dim), 
                            dtype=np.uint64)   
-    max_mod = int(max_mod*10**power)
+    max_mod_scaled = int(max_mod*10**power)
     print('computing all triplets...')
     for i, exp in tqdm.tqdm(enumerate(data), total=len(data)):
         # Convert to (N, 3) int64 array 
@@ -107,11 +108,11 @@ def compute_triplets_numba(data, bins_per_dim=100):
         points = points.astype(np.int64).T
         # Call the JIT-compiled kernel
 
-        exp_hist = fill_histogram_numba(points, bins_per_dim, -max_mod, 
-                                        max_mod)
+        exp_hist = fill_histogram_numba(points, bins_per_dim, -max_mod_scaled, 
+                                        max_mod_scaled)
         master_hist[i] = exp_hist
     rvalue = {'data':master_hist, 'max_mod':max_mod, 
-              'bins_per_dim':bins_per_dim}
+              'bins_per_dim':bins_per_dim, 'power':power}
     return rvalue
 
 
