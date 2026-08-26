@@ -14,6 +14,7 @@ from collections import defaultdict
 from itertools import combinations
 from multiprocessing import Pool
 import compute_triplets 
+import compute_baseline
 
 
 class TestFunctions(unittest.TestCase):
@@ -122,7 +123,7 @@ def parse_args():
                         default=0, type=int)
     parser.add_argument('--command', help='what to do', choices=['summary',
                                                         'all_triplets',
-                                                        'all_triplets_numba'])
+                                                        'all_triplets_baseline'])
     parser.add_argument('-d', help='dump results in a pickle file', default='')
     parser.add_argument('-b', help='number of bins per dimension', 
                         type=int, default=100)
@@ -133,6 +134,7 @@ def parse_args():
     
 def main():
     args = parse_args()
+    h_flag = False
     with open(args.f) as f:
         data = json.load(f)['data']
         """ each line is an experiment, each experiment is made of 3 lists
@@ -142,10 +144,19 @@ def main():
     if args.command == 'summary':
         data_summary(data)
     elif args.command == 'all_triplets':
-        hist = compute_triplets.compute_triplets(data, bins_per_dim=args.b)
-    elif args.command == 'all_triplets_numba':
         hist = compute_triplets.compute_triplets_numba(data, 
+                                                       bins_per_dim=args.b)['data'].sum(axis=0)
+        h_flag = True
+    elif args.command == 'all_triplets_baseline':
+        rvalue_norm = compute_baseline.compute_triplets_numba_norm(data, 
                                                        bins_per_dim=args.b)
+        rvalue_cross = compute_baseline.compute_triplets_numba_cross(data, 
+                                                       bins_per_dim=args.b)
+        #breakpoint()
+        hist = rvalue_norm['data'].sum(axis=0)
+        hist += rvalue_cross['data'].sum(axis=0)
+        h_flag = True
+
     else:
         print('unknown command')
     
@@ -154,7 +165,9 @@ def main():
             pickle.dump(hist, f)
     if args.s:
         plot_3d_triplet_hist(hist)
-    
+    if h_flag:
+        print(f'Triplets in the zero bin: {hist[0,0,0]}')
+
     
 
 if __name__ == '__main__':

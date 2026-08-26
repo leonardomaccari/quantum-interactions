@@ -8,7 +8,7 @@ Created on Fri Jan 16 11:28:37 2026
 
 import numpy as np
 from itertools import combinations
-from numba import njit, prange
+from numba import njit, prange, get_num_threads, get_thread_id
 import tqdm
 from multiprocessing import Pool
 import math
@@ -39,6 +39,8 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
     Uses parallel range (prange) to use all CPU cores.
     """
     n = len(points)
+    n_threads = get_num_threads()
+    sub_hists = np.zeros((n_threads, bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
     # Sum of 3 points ranges
     sum_min = min_val * 3
     sum_max = max_val * 3
@@ -87,16 +89,16 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
                 if iy >= bins_per_dim: iy = bins_per_dim - 1
                 if iz >= bins_per_dim: iz = bins_per_dim - 1
                 
+                tid = get_thread_id()
                 if ix >= 0 and iy >= 0 and iz >= 0:
-                    # Numba handles thread-safe increments in parallel loops
-                    hist[ix, iy, iz] += 1
-    return hist
+                    sub_hists[tid, ix, iy, iz] += 1     
+    return sub_hists.sum(axis=0)
 
 def compute_triplets_numba(data, bins_per_dim=100):
     print('pre-parsing data...')
     power, max_mod = check_precision(data)
-    master_hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), 
-                           dtype=np.uint64)
+    master_hist = np.zeros((len(data), bins_per_dim, bins_per_dim, bins_per_dim), 
+                           dtype=np.uint64)   
     max_mod = int(max_mod*10**power)
     print('computing all triplets...')
     for i, exp in tqdm.tqdm(enumerate(data), total=len(data)):
@@ -107,7 +109,7 @@ def compute_triplets_numba(data, bins_per_dim=100):
 
         exp_hist = fill_histogram_numba(points, bins_per_dim, -max_mod, 
                                         max_mod)
-        master_hist += exp_hist
+        master_hist[i] = exp_hist
     rvalue = {'data':master_hist, 'max_mod':max_mod, 
               'bins_per_dim':bins_per_dim}
     return rvalue
@@ -117,7 +119,7 @@ def compute_triplets_numba(data, bins_per_dim=100):
 ### is that it does compute in advance all the indexes, while instead they 
 ### should be reused. 
 
-def fill_histogram(exp_data, bins_per_dim, min_val, max_val, power):
+def _fill_histogram(exp_data, bins_per_dim, min_val, max_val, power):
     """
     Returns a 1D flattened bincount array.
     """
@@ -148,7 +150,7 @@ def fill_histogram(exp_data, bins_per_dim, min_val, max_val, power):
     return np.bincount(flat_idx, minlength=bins_per_dim**3).astype(np.uint64)
 
 
-def compute_triplets(data, bins_per_dim=100):
+def _compute_triplets(data, bins_per_dim=100):
     """ this variant is memory intentive and slower than the numba one """
     print('pre-parsing data...')
     power, max_mod = check_precision(data)

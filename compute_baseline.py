@@ -8,10 +8,11 @@ Created on Mon Jan 26 17∶52∶22 2026
 
 import numpy as np
 from itertools import combinations
-from numba import njit, prange
+from numba import njit, prange, get_num_threads, get_thread_id
 import tqdm
 from multiprocessing import Pool
 import math
+from compute_triplets import check_precision
 
 
 
@@ -46,7 +47,8 @@ def fill_histogram_numba_cross(
     sum_max = max_val * 3
     range_width = sum_max - sum_min
 
-    hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
+    n_threads = get_num_threads()
+    sub_hists = np.zeros((n_threads, bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
 
     shift = 0
     if int(math.log2(bins_per_dim)) == math.log2(bins_per_dim):
@@ -57,6 +59,7 @@ def fill_histogram_numba_cross(
     # We iterate over pairs (of atoms) for better parallelisation
     M = ni * (ni - 1) // 2
     for p in prange(M): # parallel
+        tid = get_thread_id()
         # recover (ai, aj) from p
         ai = int((2*ni - 1 - np.sqrt((2*ni - 1)**2 - 8*p)) // 2)
         aj = p - ai*(2*ni - ai - 1)//2 + ai + 1
@@ -94,9 +97,9 @@ def fill_histogram_numba_cross(
             if iz >= bins_per_dim: iz = bins_per_dim - 1
 
             if ix >= 0 and iy >= 0 and iz >= 0:
-                hist[ix, iy, iz] += 1
+                sub_hists[tid, ix, iy, iz] += 1     
 
-    return hist
+    return sub_hists.sum(axis=0)
     
 def compute_triplets_numba_cross(data, bins_per_dim=64, norm_factor_cross=0.001):
     print('pre-parsing data...')
@@ -166,7 +169,8 @@ def fill_histogram_numba_norm(
     sum_max = max_val * 3
     range_width = sum_max - sum_min
 
-    hist = np.zeros((bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
+    n_threads = get_num_threads()
+    sub_hists = np.zeros((n_threads, bins_per_dim, bins_per_dim, bins_per_dim), dtype=np.uint64)
 
     # optional fast bit binning
     shift = 0
@@ -179,6 +183,8 @@ def fill_histogram_numba_norm(
     M = m * (m - 1) // 2
     for p in prange(M):
         # invert triangular index
+        tid = get_thread_id()
+
         aj_s = int((2*m - 1 - math.sqrt((2*m - 1)**2 - 8*p)) // 2)
         ak_s = p - aj_s*(2*m - aj_s - 1)//2 + aj_s + 1
 
@@ -225,9 +231,9 @@ def fill_histogram_numba_norm(
             if iz >= bins_per_dim: iz = bins_per_dim - 1
 
             if ix >= 0 and iy >= 0 and iz >= 0:
-                hist[ix, iy, iz] += 1
+                sub_hists[tid, ix, iy, iz] += 1     
 
-    return hist
+    return sub_hists.sum(axis=0)
 
 
 def compute_triplets_numba_norm(data, bins_per_dim=64, norm_factor_norm=0.001):
@@ -263,6 +269,7 @@ def compute_triplets_numba_norm(data, bins_per_dim=64, norm_factor_norm=0.001):
                                              norm_factor_norm)
         # master_hist += exp_hist
         master_hist[i] = exp_hist
+
     rvalue = {'data':master_hist, 'max_mod':max_mod, 
               'bins_per_dim':bins_per_dim}
     return rvalue
