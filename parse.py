@@ -16,6 +16,7 @@ from multiprocessing import Pool
 import compute_triplets 
 import compute_baseline
 import optimizer
+import helper_functions
 
 
 class TestFunctions(unittest.TestCase):
@@ -130,7 +131,8 @@ def parse_args():
     parser.add_argument('-d', help='dump results in a pickle file', default='')
     parser.add_argument('-b', help='number of bins per dimension', 
                         type=int, default=100)
-
+    parser.add_argument('-t', help='number of trials in optuna', 
+                        type=int, default=62)
     parser.add_argument('-s', help='show the 3D histogram', 
                         default=False, action='store_true')
     return parser.parse_args()
@@ -159,10 +161,10 @@ def main():
         hist += rvalue_cross['data'].sum(axis=0)
         h_flag = True
     elif args.command == 'compare_all_triplets':
-        hist,_,_ = optimizer.compare_experiments(data, args.b)
+        hist,_,_ = helper_functions.compare_experiments(data, args.b)
         h_flag = True
     elif args.command == 'optimize':
-        optimizer.optimize(data, n_trials=5)
+        optimizer.optimize(data, n_trials=args.t)
     else:
         print('unknown command')
     

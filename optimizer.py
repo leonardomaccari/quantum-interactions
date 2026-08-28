@@ -1,45 +1,8 @@
 import optuna
 import compute_triplets
 import compute_baseline
+import numpy as np
 
-
-def compare_experiments(data, bins_per_dim):
-    # 1. Compute raw counts
-    rvalue = compute_triplets.compute_triplets_numba(data, bins_per_dim)
-    true_samples = rvalue['data']
-    hist_true = true_samples.sum(axis=0)
-    
-    norm_factor = 0.001
-    rvalue_norm = compute_baseline.compute_triplets_numba_norm(data, bins_per_dim, 
-                                                               rvalue['power'], 
-                                                               rvalue['max_mod'], 
-                                                               norm_factor_norm=norm_factor)
-    rvalue_cross = compute_baseline.compute_triplets_numba_cross(data, bins_per_dim, 
-                                                                 rvalue['power'], 
-                                                                 rvalue['max_mod'], 
-                                                                 norm_factor_cross=norm_factor)
-    
-    # Reconstruct un-downsampled background shape
-    raw_base_samples = (rvalue_norm['data'] + rvalue_cross['data'])
-    hist_base_raw = raw_base_samples.sum(axis=0)
-    
-    # 2. Compute Normalization Weight (Scale background area to match data area)
-    total_true_triplets = hist_true.sum()
-    total_base_triplets = hist_base_raw.sum()
-    weight = total_true_triplets / total_base_triplets
-    
-    # Properly scaled background
-    hist_base = hist_base_raw * weight
-    base_samples = raw_base_samples * weight
-
-    # 3. Target Center Bin (Physical Zero)
-    c = bins_per_dim // 2
-    print(f"True Zero Bin: {hist_true[c,c,c]}")
-    print(f"Scaled Background Zero Bin: {hist_base[c,c,c]:.2f}")
-    print(f"Net Signal Zero Bin: {hist_true[c,c,c] - hist_base[c,c,c]:.2f}")
-
-    # Fixed [c,c,c] slicing instead of [0,0,0]
-    return hist_true - hist_base, true_samples[:, c, c, c], base_samples[:, c, c, c]
 
 def run_optuna_pipeline(data, compute_triplets_fn, compute_cross_fn, 
                         compute_norm_fn, n_trials=50, train_ratio=0.8, 
@@ -68,10 +31,14 @@ def run_optuna_pipeline(data, compute_triplets_fn, compute_cross_fn,
             
             # 1. Compute True Data
             res_true = compute_triplets_fn(sub_data, bins_per_dim=bins_per_dim)
-            true_samples = res_true['data']
+            true_samples = res_true['data']  
             
-            total_true_triplets = true_samples.sum()
-            signal_zeroes = true_samples[:, c, c, c].sum()
+            # Per-experiment total true triplets (Shape: E,)
+            total_true_per_exp = true_samples.sum(axis=(1, 2, 3))
+            
+            # True zeroes per experiment, and the global sum
+            signal_zeroes_per_exp = true_samples[:, c, c, c]
+            signal_zeroes = signal_zeroes_per_exp.sum()
             
             # Retrieve scaling parameters
             power = res_true.get('power', 0)
@@ -86,22 +53,25 @@ def run_optuna_pipeline(data, compute_triplets_fn, compute_cross_fn,
             )
             
             raw_base_samples = res_cross['data'] + res_norm['data']
-            total_base_triplets = raw_base_samples.sum()
             
-            # 3. Direct Area Normalization (Shape matching)
-            # Prevent division by zero early in search if a grid is too coarse/sparse
-            if total_base_triplets > 0:
-                weight = total_true_triplets / total_base_triplets
-            else:
-                weight = 0.0
+            # Per-experiment total base triplets (Shape: E,)
+            total_base_per_exp = raw_base_samples.sum(axis=(1, 2, 3))
             
-            # Scale background zeroes using the computed weight
-            raw_base_zeroes = raw_base_samples[:, c, c, c].sum()
-            base_zeroes = raw_base_zeroes * weight
+            # 3. Per-Experiment Area Normalization
+            # Prevent division by zero for sparse grids using a mask
+            weights = np.zeros_like(total_true_per_exp, dtype=float)
+            valid_mask = total_base_per_exp > 0
+            weights[valid_mask] = total_true_per_exp[valid_mask] / total_base_per_exp[valid_mask]
+            
+            # 4. Scale background zeroes PER EXPERIMENT using the weight array
+            raw_base_zeroes_per_exp = raw_base_samples[:, c, c, c]
+            base_zeroes_per_exp = raw_base_zeroes_per_exp * weights
+            
+            # Now we can safely sum the properly scaled zeroes to get the total
+            base_zeroes = base_zeroes_per_exp.sum()
             
             # Net Pure Signal in zero bin
-            pure_signal = signal_zeroes - base_zeroes
-            
+            pure_signal = signal_zeroes - base_zeroes            
             # Report progress for Hyperband pruning
             trial.report(pure_signal, step=step)
             if trial.should_prune():
@@ -137,6 +107,7 @@ def optimize(data, n_trials=50, train_ratio=0.8):
 
     # Access optimal parameters
     best_bins = study.best_params["bins_per_dim"]
+    print(study.trials_dataframe())
 
 
     print(f"Optimal Grid: {best_bins}x{best_bins}x{best_bins}")
