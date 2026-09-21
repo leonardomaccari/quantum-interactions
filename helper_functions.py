@@ -91,6 +91,8 @@ def plot_heatmaps(hist_3d, title="3D Difference Histogram (True - Background)"):
     cbar.ax.tick_params(labelsize=8)
     
     plt.suptitle(title, fontsize=13, fontweight='bold', y=0.98)
+    # Save the figure
+    plt.savefig('heatmap_plot.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 
