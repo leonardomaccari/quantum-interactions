@@ -96,39 +96,42 @@ def plot_heatmaps(hist_3d, title="3D Difference Histogram (True - Background)"):
 
 def compare_experiments(data, bins_per_dim):
     # 1. Compute raw counts per experiment (Shape: E, B, B, B)
+    # 1.1 Total 3-body contribution
     rvalue = compute_triplets.compute_triplets_numba(data, bins_per_dim)
     true_samples = rvalue['data']
+    # Normalize histogram
+    true_samples = true_samples/true_samples.sum(axis=(1, 2, 3))[:, None, None, None]
     
+    # 1.2 Lower order contributions
     norm_factor = 0.001
-    norm_samples = compute_baseline.compute_triplets_numba_norm(
-        data, bins_per_dim, rvalue['power'], rvalue['max_mod'], norm_factor_norm=norm_factor
-    )['data']
+    # 1.2.a 2+1 body contribution
     cross_samples = compute_baseline.compute_triplets_numba_cross(
         data, bins_per_dim, rvalue['power'], rvalue['max_mod'], norm_factor_cross=norm_factor
     )['data']
+    # Normalize histogram
+    cross_samples = cross_samples/cross_samples.sum(axis=(1, 2, 3))[:, None, None, None]
+    # 1.2.b 1+1+1 body contribution
+    norm_samples = compute_baseline.compute_triplets_numba_norm(
+        data, bins_per_dim, rvalue['power'], rvalue['max_mod'], norm_factor_norm=norm_factor
+    )['data']
+    # Normalize histogram
+    norm_samples = norm_samples/norm_samples.sum(axis=(1, 2, 3))[:, None, None, None]
     
     # 2. Raw combined background array (Shape: E, B, B, B)
-    raw_base_samples = norm_samples + cross_samples
+    raw_base_samples = 3*cross_samples - 2*norm_samples
 
-    # 3. Compute Per-Experiment Total Triplet Counts (Shape: E,)
-    total_true_per_exp = true_samples.sum(axis=(1, 2, 3))
-    total_base_per_exp = raw_base_samples.sum(axis=(1, 2, 3))
-    
-    # 4. Compute Per-Experiment Area Weights (Shape: E,)
-    weights = total_true_per_exp / total_base_per_exp
-
-    # 5. Extract and scale center zero bin per experiment
+    # 3. Extract center zero bin per experiment
     c = bins_per_dim // 2
     true_zero = true_samples[:, c, c, c]
-    base_zero = raw_base_samples[:, c, c, c] * weights
+    base_zero = raw_base_samples[:, c, c, c]
 
-    # 6. Global reporting across full dataset
-    hist_true = true_samples.sum(axis=0)
-    hist_base = (raw_base_samples * weights[:, None, None, None]).sum(axis=0)
+    # 4. Global reporting across full dataset
+    hist_true = true_samples.mean(axis=0)
+    hist_base = raw_base_samples.mean(axis=0)
 
     print(f"True Zero Bin Total: {hist_true[c,c,c]}")
     print(f"Scaled Background Zero Bin Total: {hist_base[c,c,c]:.2f}")
-    print(f"Net Signal Zero Bin Total: {hist_true[c,c,c] - hist_base[c,c,c]:.2f}")
+    print(f"Mean Net Signal Zero Bin Total: {hist_true[c,c,c] - hist_base[c,c,c]:.2f}")
     
     plot_heatmaps(hist_true - hist_base)
     return hist_true - hist_base, true_zero, base_zero
