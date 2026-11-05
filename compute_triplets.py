@@ -92,6 +92,7 @@ def fill_histogram_numba(points, bins_per_dim, min_val, max_val):
                 tid = get_thread_id()
                 if ix >= 0 and iy >= 0 and iz >= 0:
                     sub_hists[tid, ix, iy, iz] += 1     
+
     return sub_hists.sum(axis=0)
 
 def compute_triplets_numba(data, bins_per_dim=100, power=0, max_mod=0):
@@ -164,7 +165,7 @@ def _compute_triplets(data, bins_per_dim=100):
     with Pool(1) as pool:
         args = [(exp, bins_per_dim, int(-max_mod), int(max_mod), power) for exp in data]
         
-        for result in pool.starmap(fill_histogram, tqdm.tqdm(args, 
+        for result in pool.starmap(_fill_histogram, tqdm.tqdm(args, 
                                                              total=len(args))):
             master_hist += result
             
